@@ -3,7 +3,7 @@
 Assistente capaz de responder perguntas de alunos com base em documentos
 institucionais da universidade (PPCs, regulamentos, manuais de estágio,
 editais e calendário acadêmico), usando **RAG** (Retrieval-Augmented
-Generation) com a API da Anthropic (Claude).
+Generation) com a API do Gemini.
 
 > **Tema 1 — Assistente Universitário Inteligente**
 > Construir um assistente que responde perguntas utilizando documentos acadêmicos.
@@ -28,7 +28,7 @@ Pergunta do aluno
          │ top-k chunks
          ▼
 ┌─────────────────┐
-│  Prompt + ctx   │ ──────────────►  Claude (API Anthropic)
+│  Prompt + ctx   │ ──────────────►  Gemini
 └─────────────────┘                       │
                                            ▼
                                   Resposta + fontes citadas
@@ -44,7 +44,7 @@ ajudante/
 ├── src/
 │   ├── extractor.py       # Extração e limpeza de texto dos PDFs + chunking
 │   ├── vectorstore.py     # Banco vetorial (ChromaDB) e busca por similaridade
-│   ├── assistant.py       # Integração com a API da Anthropic (Claude)
+│   ├── assistant.py       # Integração com a API do Gemini
 │   ├── ingest.py          # Pipeline de ingestão dos documentos
 │   └── evaluate.py        # Avaliação automática com perguntas reais
 ├── data/
@@ -63,13 +63,12 @@ ajudante/
 # 1. Instale as dependências
 pip install -r requirements.txt
 
-# 2. Configure a chave da API da Anthropic
+# 2. Configure a chave da API do Gemini
 cp .env.example .env
-# edite o .env e coloque sua ANTHROPIC_API_KEY
+# edite o .env e coloque sua GEMINI_API_KEY
 ```
 
-> Em uma sessão do Claude Code, a autenticação é detectada automaticamente
-> via token de sessão — não é necessário definir a chave manualmente.
+> Se preferir, você também pode usar `GOOGLE_API_KEY` no ambiente.
 
 ---
 
@@ -172,7 +171,7 @@ Casos em que o sistema falhou ou ficou abaixo do esperado, com a causa raiz:
 - **pdfplumber** — extração de PDF
 - **ChromaDB** — banco vetorial
 - **all-MiniLM-L6-v2** — modelo de embeddings
-- **Anthropic Claude** — geração das respostas
+- **Gemini** — geração das respostas
 - **Typer + Rich** — interface de linha de comando
 
 ---

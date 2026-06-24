@@ -1,28 +1,24 @@
 """
-Integração com a API da Anthropic (Claude).
+Integração com a API do Gemini.
 Injeta chunks recuperados no prompt e gera resposta fundamentada nos documentos.
 """
 
 import os
-import anthropic
 from dotenv import load_dotenv
+from google import genai
+from google.genai import errors
+from google.genai import types
 from src.vectorstore import VectorStore
 
 load_dotenv()
 
 
-def _build_client() -> anthropic.Anthropic:
-    """Cria cliente Anthropic usando API key ou token OAuth de sessão."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+def _build_client() -> genai.Client:
+    """Cria cliente Gemini usando a chave da API configurada no ambiente."""
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if api_key:
-        return anthropic.Anthropic(api_key=api_key)
-    token_file = os.environ.get("CLAUDE_SESSION_INGRESS_TOKEN_FILE")
-    if token_file:
-        with open(token_file) as f:
-            return anthropic.Anthropic(auth_token=f.read().strip())
-    raise RuntimeError(
-        "Defina ANTHROPIC_API_KEY no arquivo .env ou execute em sessão Claude Code."
-    )
+        return genai.Client(api_key=api_key)
+    raise RuntimeError("Defina GEMINI_API_KEY ou GOOGLE_API_KEY no arquivo .env.")
 
 
 SYSTEM_PROMPT = """Você é um assistente universitário especializado nos documentos institucionais da universidade.
@@ -45,7 +41,7 @@ Responda com base nos trechos acima."""
 
 class Assistant:
     def __init__(self, vector_store: VectorStore,
-                 model: str = "claude-haiku-4-5-20251001",
+                 model: str = "gemini-2.0-flash",
                  n_results: int = 5,
                  max_tokens: int = 1024):
         self._store = vector_store
@@ -74,22 +70,46 @@ class Assistant:
 
         user_message = ANSWER_TEMPLATE.format(context=context, question=question)
 
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        try:
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    max_output_tokens=self._max_tokens,
+                    temperature=0.2,
+                ),
+            )
+        except errors.ClientError as exc:
+            if getattr(exc, "code", None) == 429 or getattr(exc, "status_code", None) == 429:
+                sources = list({f"{h['source']} (p. {h['page']})" for h in hits})
+                return {
+                    "answer": (
+                        "Não consegui gerar a resposta porque a quota da API do Gemini foi excedida. "
+                        "O índice vetorial funcionou e encontrei trechos relevantes, mas a geração do modelo "
+                        "não pôde ser concluída.\n\n"
+                        "Para continuar, habilite billing/quotas no projeto do Gemini ou use um modelo/API key com acesso disponível."
+                    ),
+                    "sources": sources,
+                    "hits": hits,
+                    "error": "gemini_quota_exceeded",
+                }
+            raise
 
-        answer = response.content[0].text
+        answer = response.text or ""
         sources = list({f"{h['source']} (p. {h['page']})" for h in hits})
+        usage = getattr(response, "usage_metadata", None)
 
-        return {
+        result = {
             "answer": answer,
             "sources": sources,
             "hits": hits,
-            "usage": {
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-            },
         }
+
+        if usage:
+            result["usage"] = {
+                "input_tokens": getattr(usage, "prompt_token_count", 0),
+                "output_tokens": getattr(usage, "candidates_token_count", 0),
+            }
+
+        return result

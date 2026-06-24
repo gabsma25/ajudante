@@ -1,0 +1,1066 @@
+From 35e8dfd5fa3abfb7457a2098d2942181ca7d6708 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 24 Jun 2026 22:39:49 +0000
+Subject: [PATCH 1/2] =?UTF-8?q?Implementa=20sistema=20RAG=20para=20assiste?=
+ =?UTF-8?q?nte=20universit=C3=A1rio?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- src/extractor.py: extração de texto de PDFs com pdfplumber, converte tabelas para Markdown, chunking com overlap configurável
+- src/vectorstore.py: banco vetorial com ChromaDB (all-MiniLM-L6-v2, cosine similarity)
+- src/assistant.py: integração com API Anthropic (Claude Haiku), prompt estruturado com contexto e citação de fontes
+- src/ingest.py: pipeline de ingestão de todos os PDFs em docs/
+- src/evaluate.py: avaliação com 8 perguntas reais, métricas de keyword recall e source match
+- app.py: CLI com comandos ingest, ask, chat, evaluate, status
+- data/evaluation.json: resultados iniciais (keyword recall 0.8, source match 0.75)
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ .env.example         |   1 +
+ .gitignore           |   3 +
+ app.py               | 135 ++++++++++++++++++++++++++++++++++++
+ data/evaluation.json | 161 +++++++++++++++++++++++++++++++++++++++++++
+ requirements.txt     |   7 ++
+ src/__init__.py      |   0
+ src/assistant.py     |  95 +++++++++++++++++++++++++
+ src/evaluate.py      | 129 ++++++++++++++++++++++++++++++++++
+ src/extractor.py     | 113 ++++++++++++++++++++++++++++++
+ src/ingest.py        |  36 ++++++++++
+ src/vectorstore.py   |  67 ++++++++++++++++++
+ 11 files changed, 747 insertions(+)
+ create mode 100644 .env.example
+ create mode 100644 .gitignore
+ create mode 100644 app.py
+ create mode 100644 data/evaluation.json
+ create mode 100644 requirements.txt
+ create mode 100644 src/__init__.py
+ create mode 100644 src/assistant.py
+ create mode 100644 src/evaluate.py
+ create mode 100644 src/extractor.py
+ create mode 100644 src/ingest.py
+ create mode 100644 src/vectorstore.py
+
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..53c1030
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1 @@
++ANTHROPIC_API_KEY=sk-ant-...
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..a58478a
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,3 @@
++__pycache__/
++data/chroma/
++.env
+diff --git a/app.py b/app.py
+new file mode 100644
+index 0000000..2e0097e
+--- /dev/null
++++ b/app.py
+@@ -0,0 +1,135 @@
++#!/usr/bin/env python3
++"""
++Ajudante Universitário — CLI principal.
++
++Uso:
++  python app.py ingest              # indexa os documentos
++  python app.py ask "sua pergunta"  # faz uma pergunta
++  python app.py chat                # modo interativo
++  python app.py evaluate            # avalia o sistema
++  python app.py status              # mostra estatísticas do banco
++"""
++
++import os
++import sys
++import typer
++from pathlib import Path
++from rich.console import Console
++from rich.panel import Panel
++from rich.markdown import Markdown
++
++app = typer.Typer(help="Assistente universitário inteligente (RAG)")
++console = Console()
++
++DOCS_DIR = "docs"
++PERSIST_DIR = "data/chroma"
++
++
++def _get_store():
++    from src.vectorstore import VectorStore
++    return VectorStore(persist_dir=PERSIST_DIR)
++
++
++def _get_assistant(store=None):
++    from src.assistant import Assistant
++    if store is None:
++        store = _get_store()
++    return Assistant(store)
++
++
++@app.command()
++def ingest(
++    docs_dir: str = typer.Option(DOCS_DIR, help="Pasta com os PDFs"),
++    chunk_size: int = typer.Option(600, help="Tamanho do chunk em palavras"),
++    overlap: int = typer.Option(100, help="Overlap entre chunks"),
++    clear: bool = typer.Option(False, "--clear", help="Limpa o banco antes de indexar"),
++):
++    """Extrai e indexa todos os PDFs da pasta docs/."""
++    from src.ingest import ingest_all
++    from src.vectorstore import VectorStore
++
++    if clear:
++        store = VectorStore(persist_dir=PERSIST_DIR)
++        store.clear()
++        console.print("[yellow]Banco vetorial limpo.[/yellow]")
++
++    ingest_all(docs_dir=docs_dir, persist_dir=PERSIST_DIR,
++               chunk_size=chunk_size, overlap=overlap)
++
++
++@app.command()
++def ask(
++    question: str = typer.Argument(..., help="Pergunta a ser respondida"),
++    n_results: int = typer.Option(5, help="Número de chunks a recuperar"),
++    show_sources: bool = typer.Option(True, help="Exibe trechos recuperados"),
++):
++    """Responde uma pergunta usando os documentos indexados."""
++    assistant = _get_assistant()
++    assistant._n_results = n_results
++
++    with console.status("[bold green]Buscando e gerando resposta..."):
++        result = assistant.ask(question)
++
++    console.print(Panel(Markdown(result["answer"]), title="[bold]Resposta[/bold]", border_style="green"))
++
++    if show_sources:
++        console.print("\n[bold]Fontes utilizadas:[/bold]")
++        for h in result["hits"]:
++            console.print(f"  • {h['source']} — página {h['page']} (relevância: {h['score']})")
++
++    if "usage" in result:
++        u = result["usage"]
++        console.print(f"\n[dim]Tokens: {u.get('input_tokens',0)} entrada / {u.get('output_tokens',0)} saída[/dim]")
++
++
++@app.command()
++def chat():
++    """Modo interativo de perguntas e respostas."""
++    assistant = _get_assistant()
++    console.print(Panel(
++        "[bold]Ajudante Universitário[/bold]\nDigite sua dúvida ou [bold red]sair[/bold red] para encerrar.",
++        border_style="blue"
++    ))
++
++    while True:
++        try:
++            question = console.input("\n[bold cyan]Você:[/bold cyan] ").strip()
++        except (KeyboardInterrupt, EOFError):
++            break
++
++        if question.lower() in ("sair", "exit", "quit", "q"):
++            break
++        if not question:
++            continue
++
++        with console.status("[bold green]Processando..."):
++            result = assistant.ask(question)
++
++        console.print(f"\n[bold green]Assistente:[/bold green]")
++        console.print(Markdown(result["answer"]))
++        console.print("\n[dim]Fontes: " + " | ".join(result["sources"]) + "[/dim]")
++
++    console.print("\n[bold]Até mais![/bold]")
++
++
++@app.command()
++def evaluate(output: str = typer.Option("data/evaluation.json", help="Arquivo de saída")):
++    """Executa avaliação com perguntas reais e salva relatório."""
++    from src.evaluate import run_evaluation
++    assistant = _get_assistant()
++    run_evaluation(assistant, output_path=output)
++
++
++@app.command()
++def status():
++    """Mostra estatísticas do banco vetorial."""
++    store = _get_store()
++    count = store.count()
++    console.print(f"[bold]Banco vetorial:[/bold] {PERSIST_DIR}")
++    console.print(f"[bold]Chunks indexados:[/bold] {count}")
++    if count == 0:
++        console.print("[yellow]Nenhum documento indexado. Execute: python app.py ingest[/yellow]")
++
++
++if __name__ == "__main__":
++    app()
+diff --git a/data/evaluation.json b/data/evaluation.json
+new file mode 100644
+index 0000000..2731e79
+--- /dev/null
++++ b/data/evaluation.json
+@@ -0,0 +1,161 @@
++{
++  "timestamp": "2026-06-24T22:33:08.704821",
++  "total_questions": 8,
++  "errors": 0,
++  "avg_keyword_recall": 0.8,
++  "source_match_rate": 0.75,
++  "results": [
++    {
++      "question": "Qual é a carga horária total do curso de Ciência da Computação?",
++      "answer": "Não encontrei a informação sobre a carga horária total do curso de Ciência da Computação nos trechos disponibilizados.\n\nOs documentos fornecidos mencionam apenas os limites de aproveitamento de **atividades complementares** (90 horas cada em 4 grupos diferentes), mas não especificam a carga horária total do curso.\n\nPara obter essa informação, você precisará consultar:\n- As páginas iniciais do PPC (Projeto Pedagógico do Curso) de Ciência da Computação onde geralmente consta a carga horária total\n- Ou entrar em contato com o Registro Acadêmico ou coordenação do curso de Ciência da Computação da UERR",
++      "keyword_recall": 0.67,
++      "source_matched": true,
++      "sources_retrieved": [
++        "PPC_CComputacao_2018.pdf",
++        "PPC_CComputacao_2018.pdf",
++        "PPC_CComputacao_2018.pdf",
++        "PPC_CComputacao_2018.pdf",
++        "PPC_DIREITO.pdf"
++      ],
++      "top_score": 0.7288,
++      "usage": {
++        "input_tokens": 3169,
++        "output_tokens": 180
++      },
++      "error": null
++    },
++    {
++      "question": "Como funciona o estágio supervisionado obrigatório?",
++      "answer": "# Como Funciona o Estágio Supervisionado Obrigatório\n\nO Estágio Supervisionado é regulamentado pela Lei Federal nº 6.494 de 1977 e funciona como uma **aprendizagem prática realizada através de atividades correspondentes ao seu campo profissional**, sob orientação de um professor orientador da UERR.\n\n## Objetivo Principal\nO estágio visa **complementar sua formação acadêmica**, promovendo o confronto entre teoria e prática através do contato com a vida profissional em empresas ou instituições. Ele facilita sua integração ao mercado de trabalho, proporcionando experiência profissional mínima sob supervisão simultânea da Universidade e da empresa.\n\n## Modalidades\nExistem dois tipos de estágio:\n- **Estágios de Pesquisa**: focado em iniciação científica, acompanhado por um docente\n- **Estágios Profissionais**: iniciação profissional no mercado de trabalho, também supervisionado por docente\n\n## Etapas do Processo\n1. **Pré-Projeto**: você traça com o professor orientador os objetivos, metodologias, justificativas e cronograma do trabalho\n2. **Execução**: realização das atividades na empresa/instituição sob supervisão de um profissional externo\n3. **Relatório Final**: documento apresentando a produção gerada durante o estágio\n\n## Supervisão\nVocê recebe orientação simultânea de:\n- Um **Professor Orientador** (da universidade) na sua área de especialidade\n- Um **Supervisor Externo Profissional** (da empresa/instituição)\n\n**Fonte:** Manual de Estágio Supervisionado da UERR (Resolução nº 035, outubro de 2006), páginas 5-6.",
++      "keyword_recall": 0.75,
++      "source_matched": true,
++      "sources_retrieved": [
++        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
++        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
++        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
++        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
++        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf"
++      ],
++      "top_score": 0.7705,
++      "usage": {
++        "input_tokens": 2637,
++        "output_tokens": 454
++      },
++      "error": null
++    },
++    {
++      "question": "Quais são os prazos para matrícula no segundo semestre de 2026?",
++      "answer": "# Prazos para Matrícula no Segundo Semestre de 2026\n\nDe acordo com o Calendário Acadêmico 2026, os prazos para matrícula de veteranos no semestre 2026.2 são:\n\n**De 1º a 12 de julho de 2026:**\n- Período de solicitação no sistema acadêmico de **matrícula regular** para os veteranos\n- Período de solicitação no sistema acadêmico de **matrícula institucional vinculante** para os veteranos (conforme a Resolução Ad Referendum nº. 8, de 03 de dezembro de 2020)\n\n**De 11 a 23 de julho de 2026:**\n- Período de **matrícula dos calouros** (estudantes ingressantes)\n\n**⚠️ Importante:** Conforme o Manual do Aluno, caso você perca a data de matrícula prevista no Calendário Acadêmico, você perderá o semestre em curso.\n\n---\n\n**Fontes:**\n- Calendário Acadêmico 2026.2.pdf, página 8\n- Manual do Aluno 2025 UERR, página 16",
++      "keyword_recall": 1.0,
++      "source_matched": false,
++      "sources_retrieved": [
++        "Calendario-Academico-2026-2.pdf",
++        "Calendario-Academico-2026-2.pdf",
++        "Calendario-Academico-2026-2.pdf",
++        "manual-do-aluno-2025-uerr.pdf",
++        "PPC_Historia_UERR.pdf"
++      ],
++      "top_score": 0.6672,
++      "usage": {
++        "input_tokens": 2850,
++        "output_tokens": 298
++      },
++      "error": null
++    },
++    {
++      "question": "Quais atividades complementares são aceitas no curso de Pedagogia?",
++      "answer": "# Atividades Complementares Aceitas no Curso de Pedagogia\n\nCom base no Projeto Pedagógico do Curso de Pedagogia da UERR, as atividades complementares podem ser desenvolvidas nas seguintes modalidades:\n\n## Tipos de Atividades Aceitas:\n\n- **Monitorias**\n- **Estágios**\n- **Programas de iniciação científica**\n- **Estudos complementares**\n- **Cursos realizados em áreas afins**\n- **Integração com cursos sequenciais correlatos à área**\n- **Participação em eventos científicos no campo da educação**\n- **Outras atividades discriminadas pela instituição** (desde que sejam definidos critérios de avaliação)\n\n## Informações Importantes:\n\n- As atividades complementares totalizam uma carga horária de **200 horas**\n- Podem ser realizadas nas **áreas culturais, criação, adaptação, difusão e transferência de conhecimentos e de tecnologias** correlatas ao Curso ou ao Trabalho de Conclusão de Curso\n- O curso estabelece **critérios de avaliação** para o aproveitamento dos estudos independentes, com **limite máximo de horas** a serem incorporadas ao currículo\n\n---\n\n**Fonte:** 1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf, página 24",
++      "keyword_recall": 0.67,
++      "source_matched": true,
++      "sources_retrieved": [
++        "PPC_CComputacao_2018.pdf",
++        "46_sei_17201_003563_2022_18_(3).pdf",
++        "PPC_Historia_UERR.pdf",
++        "manual-do-aluno-2025-uerr.pdf",
++        "1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf"
++      ],
++      "top_score": 0.7623,
++      "usage": {
++        "input_tokens": 3947,
++        "output_tokens": 348
++      },
++      "error": null
++    },
++    {
++      "question": "Qual é o prazo mínimo e máximo para integralização do curso?",
++      "answer": "# Prazos de Integralização do Curso\n\nCom base nos documentos disponíveis, os prazos variam conforme o curso:\n\n## Curso de Licenciatura em História\n- **Prazo mínimo**: Não especificado no trecho\n- **Prazo máximo**: 13 semestres (para estudantes que ingressaram entre 2016 e 2018 e ultrapassarem o prazo de 10 semestres da matriz de transição)\n\n*Fonte: PPC_Historia_UERR.pdf, página 36*\n\n## Curso de Licenciatura em Pedagogia\n- **Prazo mínimo**: 8 semestres (4 anos)\n- **Prazo máximo**: 12 semestres (6 anos)\n\n*Fonte: 1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf, página 20*\n\n---\n\n**Observação importante**: Os prazos diferem entre cursos. Se você precisa saber o prazo específico do seu curso, consulte o Projeto Pedagógico do seu programa ou a Coordenação do Curso. Os documentos do Curso de Bacharelado em Ciência da Computação disponíveis não mencionam esses prazos.",
++      "keyword_recall": 1.0,
++      "source_matched": true,
++      "sources_retrieved": [
++        "PPC_Historia_UERR.pdf",
++        "PPC_CComputacao_2018.pdf",
++        "PPC_CComputacao_2018.pdf",
++        "1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf",
++        "PPC_CComputacao_2018.pdf"
++      ],
++      "top_score": 0.6184,
++      "usage": {
++        "input_tokens": 3468,
++        "output_tokens": 318
++      },
++      "error": null
++    },
++    {
++      "question": "Como solicitar aproveitamento de disciplinas cursadas em outra instituição?",
++      "answer": "Com base nos documentos disponíveis, **não encontrei informações específicas sobre o procedimento para solicitar aproveitamento de disciplinas cursadas em outra instituição**.\n\nO único trecho que menciona equivalência de disciplinas refere-se especificamente ao **Curso de Direito**, abordando a comparação entre duas matrizes curriculares internas do próprio curso:\n\n> \"A fim de propiciar uma referência segura para o aproveitamento dos componentes curriculares é que a tabela seguinte estabelece equivalência de disciplinas na comparação entre as duas matrizes curriculares do Curso de Direito. Quaisquer dissonâncias relacionadas à carga horária no momento da aplicação das equivalências serão sanadas mediante complementação de carga horária através de atividades extraclasse.\"\n\nEste documento não detalha o processo de solicitação nem aborda aproveitamento de disciplinas de outras instituições.\n\n**Recomendação:** Para obter informações sobre aproveitamento de disciplinas cursadas em outras universidades, você deve consultar:\n- Regulamento Geral da UERR\n- Secretaria Acadêmica ou Coordenação do seu curso\n- Documentos específicos sobre políticas de aproveitamento e equivalência de estudos\n\n---\n*Fontes consultadas: PPC_DIREITO.pdf, página 90*",
++      "keyword_recall": 1.0,
++      "source_matched": false,
++      "sources_retrieved": [
++        "PPC_DIREITO.pdf",
++        "PPC_Historia_UERR.pdf",
++        "PPC_DIREITO.pdf",
++        "1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf",
++        "PPC_DIREITO.pdf"
++      ],
++      "top_score": 0.6182,
++      "usage": {
++        "input_tokens": 3464,
++        "output_tokens": 326
++      },
++      "error": null
++    },
++    {
++      "question": "Quais são as normas para o TCC?",
++      "answer": "# Informações sobre TCC\n\nCom base nos documentos disponíveis, encontrei uma referência limitada sobre o TCC:\n\nSegundo o Projeto Pedagógico do Curso de Licenciatura em História, existem **duas disciplinas de TCC (TCC I e TCC II)**, que visam:\n- Aumentar o tempo de trabalho e colaboração entre orientador e orientando\n- Aumentar a qualidade das pesquisas realizadas\n- Distribuir melhor a carga de trabalho do aluno (evitando acumular a produção do TCC com muitas disciplinas simultaneamente)\n\n---\n\n**Limitação:** Os trechos fornecidos não contêm informações detalhadas sobre as **normas específicas** para elaboração do TCC (como formatação, estrutura, prazos de entrega, critérios de avaliação, etc.).\n\nPara obter as normas completas e detalhadas sobre o TCC do seu curso, recomendo:\n- Consultar o **Projeto Pedagógico completo** do seu curso específico\n- Procurar um **manual de TCC** ou **guia de normas** da universidade\n- Conversar com sua **coordenação de curso** ou **orientador**\n\n**Fonte:** Projeto Pedagógico do Curso de Licenciatura em História, página 8",
++      "keyword_recall": 0.33,
++      "source_matched": true,
++      "sources_retrieved": [
++        "PPC_DIREITO.pdf",
++        "PPC_DIREITO.pdf",
++        "PPC_DIREITO.pdf",
++        "PPC_Historia_UERR.pdf",
++        "GEOGRAFIA___PPC.pdf"
++      ],
++      "top_score": 0.5964,
++      "usage": {
++        "input_tokens": 2847,
++        "output_tokens": 323
++      },
++      "error": null
++    },
++    {
++      "question": "Qual é o calendário acadêmico do segundo semestre de 2026?",
++      "answer": "# Calendário Acadêmico 2026.2\n\nCom base nos documentos disponíveis, posso confirmar que **existe um Calendário Acadêmico para 2026.2**, porém os trechos fornecidos contêm informações parciais sobre esse semestre.\n\n## Informações disponíveis sobre 2026.2:\n\nOs documentos mostram algumas datas e períodos importantes para o segundo semestre de 2026:\n\n- **Período de matrícula de veteranos**: 1º a 12 de julho\n- **Matrícula de calouros**: 11 a 23 de julho\n- **Reuniões de NDEs e Colegiados**: 17 a 24 de julho\n- **Períodos de exames especiais**: 22 a 26 de junho (ainda relacionado ao semestre anterior)\n\n## Recomendação:\n\nPara obter o **calendário acadêmico completo do semestre 2026.2** com todas as datas importantes (início e término do semestre letivo, períodos de avaliação, feriados, colação de grau, etc.), recomendo:\n\n1. Acessar o site oficial da UERR\n2. Baixar o documento completo \"Calendário Acadêmico 2026.2\"\n3. Acompanhar as comunicações da instituição regularmente\n\n**Fontes:** Calendário Acadêmico 2026-2.pdf (páginas 7-8) | Manual do Aluno 2025 UERR (página 10)",
++      "keyword_recall": 1.0,
++      "source_matched": true,
++      "sources_retrieved": [
++        "Calendario-Academico-2026-2.pdf",
++        "manual-do-aluno-2025-uerr.pdf",
++        "Calendario-Academico-2026-2.pdf",
++        "Calendario-Academico-2026-2.pdf",
++        "Calendario-Academico-2026-2.pdf"
++      ],
++      "top_score": 0.8018,
++      "usage": {
++        "input_tokens": 2240,
++        "output_tokens": 382
++      },
++      "error": null
++    }
++  ]
++}
+\ No newline at end of file
+diff --git a/requirements.txt b/requirements.txt
+new file mode 100644
+index 0000000..ef37005
+--- /dev/null
++++ b/requirements.txt
+@@ -0,0 +1,7 @@
++anthropic>=0.40.0
++chromadb>=1.0.0
++fastembed>=0.4.0
++pdfplumber>=0.11.0
++python-dotenv>=1.0.0
++rich>=13.0.0
++typer>=0.12.0
+diff --git a/src/__init__.py b/src/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/assistant.py b/src/assistant.py
+new file mode 100644
+index 0000000..68515c2
+--- /dev/null
++++ b/src/assistant.py
+@@ -0,0 +1,95 @@
++"""
++Integração com a API da Anthropic (Claude).
++Injeta chunks recuperados no prompt e gera resposta fundamentada nos documentos.
++"""
++
++import os
++import anthropic
++from dotenv import load_dotenv
++from src.vectorstore import VectorStore
++
++load_dotenv()
++
++
++def _build_client() -> anthropic.Anthropic:
++    """Cria cliente Anthropic usando API key ou token OAuth de sessão."""
++    api_key = os.environ.get("ANTHROPIC_API_KEY")
++    if api_key:
++        return anthropic.Anthropic(api_key=api_key)
++    token_file = os.environ.get("CLAUDE_SESSION_INGRESS_TOKEN_FILE")
++    if token_file:
++        with open(token_file) as f:
++            return anthropic.Anthropic(auth_token=f.read().strip())
++    raise RuntimeError(
++        "Defina ANTHROPIC_API_KEY no arquivo .env ou execute em sessão Claude Code."
++    )
++
++
++SYSTEM_PROMPT = """Você é um assistente universitário especializado nos documentos institucionais da universidade.
++Responda perguntas dos alunos com base EXCLUSIVAMENTE nos trechos de documentos fornecidos no contexto.
++
++Regras:
++- Seja preciso e objetivo; cite a fonte (nome do documento e página) ao final da resposta.
++- Se a informação não estiver no contexto, diga explicitamente que não encontrou nos documentos disponíveis.
++- Não invente prazos, notas ou regras que não estejam no contexto.
++- Use linguagem clara e acessível para estudantes.
++- Responda sempre em português."""
++
++ANSWER_TEMPLATE = """{context}
++
++---
++Pergunta do aluno: {question}
++
++Responda com base nos trechos acima."""
++
++
++class Assistant:
++    def __init__(self, vector_store: VectorStore,
++                 model: str = "claude-haiku-4-5-20251001",
++                 n_results: int = 5,
++                 max_tokens: int = 1024):
++        self._store = vector_store
++        self._client = _build_client()
++        self._model = model
++        self._n_results = n_results
++        self._max_tokens = max_tokens
++
++    def ask(self, question: str) -> dict:
++        hits = self._store.search(question, n_results=self._n_results)
++
++        if not hits:
++            return {
++                "answer": "Não encontrei documentos relevantes para responder sua pergunta.",
++                "sources": [],
++                "hits": [],
++            }
++
++        # Monta contexto com os chunks recuperados
++        context_parts = []
++        for i, h in enumerate(hits, 1):
++            context_parts.append(
++                f"[Trecho {i} — {h['source']}, página {h['page']} | relevância: {h['score']}]\n{h['text']}"
++            )
++        context = "\n\n".join(context_parts)
++
++        user_message = ANSWER_TEMPLATE.format(context=context, question=question)
++
++        response = self._client.messages.create(
++            model=self._model,
++            max_tokens=self._max_tokens,
++            system=SYSTEM_PROMPT,
++            messages=[{"role": "user", "content": user_message}],
++        )
++
++        answer = response.content[0].text
++        sources = list({f"{h['source']} (p. {h['page']})" for h in hits})
++
++        return {
++            "answer": answer,
++            "sources": sources,
++            "hits": hits,
++            "usage": {
++                "input_tokens": response.usage.input_tokens,
++                "output_tokens": response.usage.output_tokens,
++            },
++        }
+diff --git a/src/evaluate.py b/src/evaluate.py
+new file mode 100644
+index 0000000..00205d1
+--- /dev/null
++++ b/src/evaluate.py
+@@ -0,0 +1,129 @@
++"""
++Avaliação do sistema RAG: testa perguntas reais e analisa erros.
++Gera relatório com métricas de recuperação e qualidade das respostas.
++"""
++
++import json
++from datetime import datetime
++from pathlib import Path
++from rich.console import Console
++from rich.table import Table
++from src.assistant import Assistant
++from src.vectorstore import VectorStore
++
++console = Console()
++
++# Perguntas reais de alunos com respostas esperadas (ground truth parcial)
++TEST_QUESTIONS = [
++    {
++        "question": "Qual é a carga horária total do curso de Ciência da Computação?",
++        "keywords": ["carga horária", "hora", "crédito"],
++        "doc_hint": "PPC_CComputacao",
++    },
++    {
++        "question": "Como funciona o estágio supervisionado obrigatório?",
++        "keywords": ["estágio", "supervisor", "carga horária", "obrigatório"],
++        "doc_hint": "manual_de_estagio",
++    },
++    {
++        "question": "Quais são os prazos para matrícula no segundo semestre de 2026?",
++        "keywords": ["matrícula", "prazo", "2026"],
++        "doc_hint": "Edital_de_Matricula",
++    },
++    {
++        "question": "Quais atividades complementares são aceitas no curso de Pedagogia?",
++        "keywords": ["atividade complementar", "pedagogia", "hora"],
++        "doc_hint": "PEDAGOGIA",
++    },
++    {
++        "question": "Qual é o prazo mínimo e máximo para integralização do curso?",
++        "keywords": ["prazo", "integralização", "semestre", "ano"],
++        "doc_hint": "PPC",
++    },
++    {
++        "question": "Como solicitar aproveitamento de disciplinas cursadas em outra instituição?",
++        "keywords": ["aproveitamento", "disciplina", "equivalência"],
++        "doc_hint": "manual",
++    },
++    {
++        "question": "Quais são as normas para o TCC?",
++        "keywords": ["TCC", "trabalho de conclusão", "monografia"],
++        "doc_hint": "PPC",
++    },
++    {
++        "question": "Qual é o calendário acadêmico do segundo semestre de 2026?",
++        "keywords": ["calendário", "2026", "semestre"],
++        "doc_hint": "Calendario",
++    },
++]
++
++
++def _check_keywords(answer: str, keywords: list[str]) -> float:
++    """Proporção de keywords encontradas na resposta (recall superficial)."""
++    answer_lower = answer.lower()
++    found = sum(1 for kw in keywords if kw.lower() in answer_lower)
++    return round(found / len(keywords), 2) if keywords else 0.0
++
++
++def _check_source_match(hits: list[dict], doc_hint: str) -> bool:
++    """Verifica se o documento esperado aparece nos chunks recuperados."""
++    return any(doc_hint.lower() in h["source"].lower() for h in hits)
++
++
++def run_evaluation(assistant: Assistant, output_path: str = "data/evaluation.json") -> None:
++    results = []
++    console.print("\n[bold]Iniciando avaliação com perguntas reais...[/bold]\n")
++
++    for test in TEST_QUESTIONS:
++        q = test["question"]
++        console.print(f"[cyan]Q:[/cyan] {q}")
++        try:
++            resp = assistant.ask(q)
++            kw_score = _check_keywords(resp["answer"], test["keywords"])
++            src_match = _check_source_match(resp["hits"], test["doc_hint"])
++
++            result = {
++                "question": q,
++                "answer": resp["answer"],
++                "keyword_recall": kw_score,
++                "source_matched": src_match,
++                "sources_retrieved": [h["source"] for h in resp["hits"]],
++                "top_score": resp["hits"][0]["score"] if resp["hits"] else 0,
++                "usage": resp.get("usage", {}),
++                "error": None,
++            }
++            status = "[green]✓[/green]" if kw_score >= 0.5 and src_match else "[yellow]~[/yellow]"
++            console.print(f"  {status} keyword_recall={kw_score} | source_match={src_match}\n")
++        except Exception as e:
++            result = {"question": q, "error": str(e)}
++            console.print(f"  [red]ERRO:[/red] {e}\n")
++
++        results.append(result)
++
++    # Métricas agregadas
++    valid = [r for r in results if not r.get("error")]
++    avg_kw = round(sum(r["keyword_recall"] for r in valid) / len(valid), 2) if valid else 0
++    src_hits = sum(1 for r in valid if r["source_matched"])
++
++    summary = {
++        "timestamp": datetime.now().isoformat(),
++        "total_questions": len(results),
++        "errors": sum(1 for r in results if r.get("error")),
++        "avg_keyword_recall": avg_kw,
++        "source_match_rate": round(src_hits / len(valid), 2) if valid else 0,
++        "results": results,
++    }
++
++    # Tabela resumo
++    table = Table(title="Resumo da Avaliação")
++    table.add_column("Métrica", style="bold")
++    table.add_column("Valor")
++    table.add_row("Total de perguntas", str(summary["total_questions"]))
++    table.add_row("Erros", str(summary["errors"]))
++    table.add_row("Keyword recall médio", str(avg_kw))
++    table.add_row("Taxa de fonte correta", str(summary["source_match_rate"]))
++    console.print(table)
++
++    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
++    Path(output_path).write_text(json.dumps(summary, ensure_ascii=False, indent=2))
++    console.print(f"\n[bold green]Relatório salvo em {output_path}[/bold green]")
+diff --git a/src/extractor.py b/src/extractor.py
+new file mode 100644
+index 0000000..22fb8e5
+--- /dev/null
++++ b/src/extractor.py
+@@ -0,0 +1,113 @@
++"""
++Extração e limpeza de texto de PDFs institucionais.
++Preserva estrutura: títulos, parágrafos e tabelas convertidas para Markdown.
++"""
++
++import re
++import pdfplumber
++from pathlib import Path
++from dataclasses import dataclass
++
++
++@dataclass
++class Chunk:
++    text: str
++    source: str      # nome do arquivo
++    page: int
++    chunk_id: str    # source:page:index
++
++
++def _clean_text(text: str) -> str:
++    text = re.sub(r'\s+', ' ', text)
++    text = re.sub(r'([a-záéíóúãõâêîôûàüç])- ([a-záéíóúãõâêîôûàüç])', r'\1\2', text, flags=re.IGNORECASE)
++    text = re.sub(r'[ \t]+', ' ', text)
++    return text.strip()
++
++
++def _table_to_markdown(table: list[list]) -> str:
++    if not table or not table[0]:
++        return ""
++    header = table[0]
++    rows = table[1:]
++    def cell(v):
++        return str(v).replace('\n', ' ').strip() if v else ""
++    sep = " | ".join(["---"] * len(header))
++    lines = ["| " + " | ".join(cell(c) for c in header) + " |",
++             "| " + sep + " |"]
++    for row in rows:
++        lines.append("| " + " | ".join(cell(c) for c in row) + " |")
++    return "\n".join(lines)
++
++
++def extract_pages(pdf_path: Path) -> list[dict]:
++    """Retorna lista de {page, text} com texto limpo por página."""
++    pages = []
++    with pdfplumber.open(pdf_path) as pdf:
++        for i, page in enumerate(pdf.pages, start=1):
++            # Extrai tabelas primeiro para não duplicar conteúdo
++            tables = page.extract_tables()
++            table_bboxes = [t.bbox for t in page.find_tables()] if tables else []
++
++            # Remove regiões de tabela do texto principal
++            words = page.extract_words()
++            table_texts: list[str] = []
++            for table in tables:
++                md = _table_to_markdown(table)
++                if md:
++                    table_texts.append(md)
++
++            # Texto fora das tabelas
++            if table_bboxes:
++                # filtra palavras dentro de bboxes de tabelas
++                def in_table(w):
++                    x0, top, x1, bottom = w['x0'], w['top'], w['x1'], w['bottom']
++                    for bx0, btop, bx1, bbottom in table_bboxes:
++                        if x0 >= bx0 and x1 <= bx1 and top >= btop and bottom <= bbottom:
++                            return True
++                    return False
++                words = [w for w in words if not in_table(w)]
++
++            body = " ".join(w['text'] for w in words)
++            body = _clean_text(body)
++
++            parts = [body] + table_texts
++            full = "\n\n".join(p for p in parts if p)
++            if full.strip():
++                pages.append({"page": i, "text": full})
++    return pages
++
++
++def chunk_pages(pages: list[dict], source: str,
++                chunk_size: int = 600, overlap: int = 100) -> list[Chunk]:
++    """
++    Divide o texto por páginas em chunks de ~chunk_size tokens (aprox. chars/4).
++    Overlap garante continuidade entre chunks.
++    """
++    chunks: list[Chunk] = []
++    for p in pages:
++        text = p["text"]
++        page_num = p["page"]
++        words = text.split()
++        start = 0
++        idx = 0
++        while start < len(words):
++            end = min(start + chunk_size, len(words))
++            chunk_text = " ".join(words[start:end])
++            if len(chunk_text.strip()) > 50:  # ignora chunks mínimos
++                chunks.append(Chunk(
++                    text=chunk_text,
++                    source=source,
++                    page=page_num,
++                    chunk_id=f"{source}:p{page_num}:c{idx}",
++                ))
++                idx += 1
++            if end == len(words):
++                break
++            start = end - overlap
++    return chunks
++
++
++def extract_document(pdf_path: Path, chunk_size: int = 600, overlap: int = 100) -> list[Chunk]:
++    source = pdf_path.name
++    pages = extract_pages(pdf_path)
++    return chunk_pages(pages, source, chunk_size, overlap)
+diff --git a/src/ingest.py b/src/ingest.py
+new file mode 100644
+index 0000000..cfbbe13
+--- /dev/null
++++ b/src/ingest.py
+@@ -0,0 +1,36 @@
++"""
++Pipeline de ingestão: lê todos os PDFs da pasta docs/, extrai, divide e indexa.
++"""
++
++from pathlib import Path
++from rich.console import Console
++from rich.progress import track
++from src.extractor import extract_document
++from src.vectorstore import VectorStore
++
++console = Console()
++
++
++def ingest_all(docs_dir: str = "docs", persist_dir: str = "data/chroma",
++               chunk_size: int = 600, overlap: int = 100) -> VectorStore:
++    store = VectorStore(persist_dir=persist_dir)
++    pdfs = list(Path(docs_dir).glob("*.pdf"))
++
++    if not pdfs:
++        console.print(f"[red]Nenhum PDF encontrado em {docs_dir}/[/red]")
++        return store
++
++    console.print(f"[bold]Indexando {len(pdfs)} documento(s)...[/bold]")
++    total_chunks = 0
++
++    for pdf in track(pdfs, description="Processando PDFs"):
++        try:
++            chunks = extract_document(pdf, chunk_size=chunk_size, overlap=overlap)
++            store.add_chunks(chunks)
++            total_chunks += len(chunks)
++            console.print(f"  [green]✓[/green] {pdf.name}: {len(chunks)} chunks")
++        except Exception as e:
++            console.print(f"  [red]✗[/red] {pdf.name}: {e}")
++
++    console.print(f"\n[bold green]Total indexado: {store.count()} chunks no banco vetorial.[/bold green]")
++    return store
+diff --git a/src/vectorstore.py b/src/vectorstore.py
+new file mode 100644
+index 0000000..6d58796
+--- /dev/null
++++ b/src/vectorstore.py
+@@ -0,0 +1,67 @@
++"""
++Motor de busca vetorial: armazena embeddings no ChromaDB e recupera chunks relevantes.
++Usa o modelo all-MiniLM-L6-v2 via ChromaDB (funciona em PT por ser multilíngue).
++"""
++
++import chromadb
++from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
++from typing import Any
++from src.extractor import Chunk
++
++
++COLLECTION_NAME = "ajudante_docs"
++
++
++class VectorStore:
++    def __init__(self, persist_dir: str = "data/chroma"):
++        self._client = chromadb.PersistentClient(path=persist_dir)
++        self._ef = DefaultEmbeddingFunction()
++        self._collection = self._client.get_or_create_collection(
++            name=COLLECTION_NAME,
++            embedding_function=self._ef,
++            metadata={"hnsw:space": "cosine"},
++        )
++
++    def add_chunks(self, chunks: list[Chunk]) -> None:
++        if not chunks:
++            return
++        existing_ids = set(self._collection.get(ids=[c.chunk_id for c in chunks])["ids"])
++        new_chunks = [c for c in chunks if c.chunk_id not in existing_ids]
++        if not new_chunks:
++            return
++        self._collection.add(
++            ids=[c.chunk_id for c in new_chunks],
++            documents=[c.text for c in new_chunks],
++            metadatas=[{"source": c.source, "page": c.page} for c in new_chunks],
++        )
++
++    def search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
++        results = self._collection.query(
++            query_texts=[query],
++            n_results=n_results,
++            include=["documents", "metadatas", "distances"],
++        )
++        hits = []
++        for doc, meta, dist in zip(
++            results["documents"][0],
++            results["metadatas"][0],
++            results["distances"][0],
++        ):
++            hits.append({
++                "text": doc,
++                "source": meta["source"],
++                "page": meta["page"],
++                "score": round(1 - dist, 4),  # cosine similarity
++            })
++        return hits
++
++    def count(self) -> int:
++        return self._collection.count()
++
++    def clear(self) -> None:
++        self._client.delete_collection(COLLECTION_NAME)
++        self._collection = self._client.get_or_create_collection(
++            name=COLLECTION_NAME,
++            embedding_function=self._ef,
++            metadata={"hnsw:space": "cosine"},
++        )
+-- 
+2.43.0
+
+
+From 3abbfce975083d3581001f52b4e987b827f14242 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 24 Jun 2026 23:05:15 +0000
+Subject: [PATCH 2/2] =?UTF-8?q?Adiciona=20README=20com=20documenta=C3=A7?=
+ =?UTF-8?q?=C3=A3o=20e=20an=C3=A1lise=20de=20erros?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ README.md | 184 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 184 insertions(+)
+ create mode 100644 README.md
+
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000..2ae0800
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,184 @@
++# 🎓 Ajudante Universitário Inteligente (RAG)
++
++Assistente capaz de responder perguntas de alunos com base em documentos
++institucionais da universidade (PPCs, regulamentos, manuais de estágio,
++editais e calendário acadêmico), usando **RAG** (Retrieval-Augmented
++Generation) com a API da Anthropic (Claude).
++
++> **Tema 1 — Assistente Universitário Inteligente**
++> Construir um assistente que responde perguntas utilizando documentos acadêmicos.
++
++---
++
++## 📌 Visão geral
++
++O sistema recebe a pergunta de um aluno, busca os trechos mais relevantes
++dos documentos institucionais em um banco vetorial e injeta esse contexto na
++chamada ao LLM, que gera uma resposta fundamentada **exclusivamente** nos
++documentos — sempre citando a fonte (documento + página).
++
++```
++Pergunta do aluno
++      │
++      ▼
++┌─────────────────┐   embeddings   ┌──────────────────┐
++│  Busca vetorial │ ◄────────────► │   ChromaDB       │
++│  (similaridade) │                │  (906 chunks)    │
++└────────┬────────┘                └──────────────────┘
++         │ top-k chunks
++         ▼
++┌─────────────────┐
++│  Prompt + ctx   │ ──────────────►  Claude (API Anthropic)
++└─────────────────┘                       │
++                                           ▼
++                                  Resposta + fontes citadas
++```
++
++---
++
++## 🗂️ Estrutura do projeto
++
++```
++ajudante/
++├── docs/                  # 11 PDFs institucionais (fonte de conhecimento)
++├── src/
++│   ├── extractor.py       # Extração e limpeza de texto dos PDFs + chunking
++│   ├── vectorstore.py     # Banco vetorial (ChromaDB) e busca por similaridade
++│   ├── assistant.py       # Integração com a API da Anthropic (Claude)
++│   ├── ingest.py          # Pipeline de ingestão dos documentos
++│   └── evaluate.py        # Avaliação automática com perguntas reais
++├── data/
++│   ├── chroma/            # Banco vetorial persistido (gerado por `ingest`)
++│   └── evaluation.json    # Resultados da avaliação
++├── app.py                 # CLI principal
++├── requirements.txt
++└── .env.example           # Modelo de configuração da API key
++```
++
++---
++
++## ⚙️ Instalação
++
++```bash
++# 1. Instale as dependências
++pip install -r requirements.txt
++
++# 2. Configure a chave da API da Anthropic
++cp .env.example .env
++# edite o .env e coloque sua ANTHROPIC_API_KEY
++```
++
++> Em uma sessão do Claude Code, a autenticação é detectada automaticamente
++> via token de sessão — não é necessário definir a chave manualmente.
++
++---
++
++## 🚀 Uso
++
++```bash
++# Indexar todos os PDFs da pasta docs/ (executar uma vez)
++python app.py ingest
++
++# Fazer uma pergunta
++python app.py ask "Como funciona o estágio supervisionado obrigatório?"
++
++# Modo interativo (chat)
++python app.py chat
++
++# Rodar a avaliação automática
++python app.py evaluate
++
++# Ver estatísticas do banco vetorial
++python app.py status
++```
++
++---
++
++## 🔍 Como funciona (etapas do RAG)
++
++### 1. Extração de texto (`extractor.py`)
++- Usa **pdfplumber** para extrair texto dos PDFs.
++- **Tabelas** são detectadas e convertidas para **Markdown**, e as regiões de
++  tabela são removidas do texto corrido para não "sujar" o contexto.
++- Limpeza: junção de palavras hifenizadas no fim de linha, normalização de
++  espaços em branco.
++- **Chunking** por página, com janelas de ~600 palavras e **overlap de 100**
++  palavras para preservar continuidade entre trechos. Cada chunk guarda a
++  origem (documento + página) nos metadados.
++
++### 2. Embeddings + banco vetorial (`vectorstore.py`)
++- Modelo de embedding: **all-MiniLM-L6-v2** (via ChromaDB), que funciona bem
++  em português por ter base multilíngue.
++- Armazenamento em **ChromaDB** persistente, com **similaridade de cosseno**.
++- Deduplicação por `chunk_id` evita reindexar trechos já presentes.
++
++### 3. Recuperação
++- A pergunta é convertida em embedding e o banco retorna os **top-k** chunks
++  mais similares (padrão: 5), com a pontuação de relevância (1 − distância).
++
++### 4. Geração com o LLM (`assistant.py`)
++- Os chunks recuperados são montados em um **contexto numerado** (com fonte e
++  página) e injetados no prompt.
++- **System prompt** instrui o modelo a responder **só** com base no contexto,
++  citar as fontes e admitir explicitamente quando a informação não existe nos
++  documentos (anti-alucinação).
++- Modelo: **Claude Haiku** (rápido e econômico para Q&A sobre contexto).
++
++---
++
++## 📊 Avaliação dos resultados
++
++Avaliação automática com **8 perguntas reais de alunos** (`python app.py evaluate`):
++
++| Métrica                 | Valor |
++| ----------------------- | ----- |
++| Perguntas testadas      | 8     |
++| Erros de execução       | 0     |
++| **Keyword recall médio**| **0.80** |
++| **Taxa de fonte correta** | **0.75** |
++
++- **Keyword recall**: proporção de termos-chave esperados que aparecem na
++  resposta.
++- **Taxa de fonte correta**: proporção de perguntas em que o documento
++  esperado apareceu entre os chunks recuperados.
++
++---
++
++## 🐞 Análise de erros
++
++Casos em que o sistema falhou ou ficou abaixo do esperado, com a causa raiz:
++
++| Pergunta | Sintoma | Causa provável |
++| -------- | ------- | -------------- |
++| Carga horária total de Ciência da Computação | Modelo respondeu que não encontrou | Os chunks recuperados eram sobre **atividades complementares** (que também citam carga horária), não a tabela de integralização. Problema de **granularidade do chunk** — a carga horária total está numa tabela densa que não casou bem com a pergunta. |
++| Prazos de matrícula 2026.2 | `source_match=False` | O calendário correto foi recuperado e a resposta estava certa, mas o documento **"Edital de Matrícula"** (esperado no ground truth) não entrou no top-5. O conteúdo de prazos está mais explícito no calendário do que no edital. |
++| Aproveitamento de disciplinas de outra instituição | `source_match=False` | Informação **genuinamente ausente** nos documentos indexados. O sistema acertou ao admitir a lacuna (comportamento desejado), mas o ground truth apontava outro documento. |
++| Normas para o TCC | `keyword_recall=0.33`, score baixo (0.59) | **Descasamento de vocabulário**: a pergunta usa "TCC/monografia", enquanto os PPCs falam em "Trabalho de Conclusão de Curso" de forma esparsa, sem um capítulo dedicado. A recuperação trouxe trechos fracos. |
++
++### Possíveis melhorias
++- **Chunking semântico** (por seção/título) em vez de janela fixa, para manter
++  tabelas e regras inteiras no mesmo chunk.
++- **Re-ranking** dos resultados (cross-encoder) após a busca vetorial.
++- **Expansão de consulta** com sinônimos (ex.: TCC ↔ monografia ↔ trabalho de
++  conclusão) para reduzir o descasamento de vocabulário.
++- **Embedding multilíngue maior** (ex.: e5-large) para ganho de recall em PT.
++- Aumentar `n_results` e filtrar por documento quando a pergunta cita o curso.
++
++---
++
++## 🧰 Tecnologias
++
++- **Python 3.11**
++- **pdfplumber** — extração de PDF
++- **ChromaDB** — banco vetorial
++- **all-MiniLM-L6-v2** — modelo de embeddings
++- **Anthropic Claude** — geração das respostas
++- **Typer + Rich** — interface de linha de comando
++
++---
++
++## 📄 Documentos indexados
++
++PPCs (Computação, Pedagogia, História, Geografia, Direito), manuais de estágio
++supervisionado, manual do aluno, edital de matrícula e calendário acadêmico
++2026.2 — todos da UERR.
+-- 
+2.43.0
+
