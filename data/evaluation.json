@@ -1,0 +1,161 @@
+{
+  "timestamp": "2026-06-24T22:33:08.704821",
+  "total_questions": 8,
+  "errors": 0,
+  "avg_keyword_recall": 0.8,
+  "source_match_rate": 0.75,
+  "results": [
+    {
+      "question": "Qual é a carga horária total do curso de Ciência da Computação?",
+      "answer": "Não encontrei a informação sobre a carga horária total do curso de Ciência da Computação nos trechos disponibilizados.\n\nOs documentos fornecidos mencionam apenas os limites de aproveitamento de **atividades complementares** (90 horas cada em 4 grupos diferentes), mas não especificam a carga horária total do curso.\n\nPara obter essa informação, você precisará consultar:\n- As páginas iniciais do PPC (Projeto Pedagógico do Curso) de Ciência da Computação onde geralmente consta a carga horária total\n- Ou entrar em contato com o Registro Acadêmico ou coordenação do curso de Ciência da Computação da UERR",
+      "keyword_recall": 0.67,
+      "source_matched": true,
+      "sources_retrieved": [
+        "PPC_CComputacao_2018.pdf",
+        "PPC_CComputacao_2018.pdf",
+        "PPC_CComputacao_2018.pdf",
+        "PPC_CComputacao_2018.pdf",
+        "PPC_DIREITO.pdf"
+      ],
+      "top_score": 0.7288,
+      "usage": {
+        "input_tokens": 3169,
+        "output_tokens": 180
+      },
+      "error": null
+    },
+    {
+      "question": "Como funciona o estágio supervisionado obrigatório?",
+      "answer": "# Como Funciona o Estágio Supervisionado Obrigatório\n\nO Estágio Supervisionado é regulamentado pela Lei Federal nº 6.494 de 1977 e funciona como uma **aprendizagem prática realizada através de atividades correspondentes ao seu campo profissional**, sob orientação de um professor orientador da UERR.\n\n## Objetivo Principal\nO estágio visa **complementar sua formação acadêmica**, promovendo o confronto entre teoria e prática através do contato com a vida profissional em empresas ou instituições. Ele facilita sua integração ao mercado de trabalho, proporcionando experiência profissional mínima sob supervisão simultânea da Universidade e da empresa.\n\n## Modalidades\nExistem dois tipos de estágio:\n- **Estágios de Pesquisa**: focado em iniciação científica, acompanhado por um docente\n- **Estágios Profissionais**: iniciação profissional no mercado de trabalho, também supervisionado por docente\n\n## Etapas do Processo\n1. **Pré-Projeto**: você traça com o professor orientador os objetivos, metodologias, justificativas e cronograma do trabalho\n2. **Execução**: realização das atividades na empresa/instituição sob supervisão de um profissional externo\n3. **Relatório Final**: documento apresentando a produção gerada durante o estágio\n\n## Supervisão\nVocê recebe orientação simultânea de:\n- Um **Professor Orientador** (da universidade) na sua área de especialidade\n- Um **Supervisor Externo Profissional** (da empresa/instituição)\n\n**Fonte:** Manual de Estágio Supervisionado da UERR (Resolução nº 035, outubro de 2006), páginas 5-6.",
+      "keyword_recall": 0.75,
+      "source_matched": true,
+      "sources_retrieved": [
+        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
+        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
+        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
+        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf",
+        "35__resolucao_035_-_manual_de_estagio_supervisionado.pdf"
+      ],
+      "top_score": 0.7705,
+      "usage": {
+        "input_tokens": 2637,
+        "output_tokens": 454
+      },
+      "error": null
+    },
+    {
+      "question": "Quais são os prazos para matrícula no segundo semestre de 2026?",
+      "answer": "# Prazos para Matrícula no Segundo Semestre de 2026\n\nDe acordo com o Calendário Acadêmico 2026, os prazos para matrícula de veteranos no semestre 2026.2 são:\n\n**De 1º a 12 de julho de 2026:**\n- Período de solicitação no sistema acadêmico de **matrícula regular** para os veteranos\n- Período de solicitação no sistema acadêmico de **matrícula institucional vinculante** para os veteranos (conforme a Resolução Ad Referendum nº. 8, de 03 de dezembro de 2020)\n\n**De 11 a 23 de julho de 2026:**\n- Período de **matrícula dos calouros** (estudantes ingressantes)\n\n**⚠️ Importante:** Conforme o Manual do Aluno, caso você perca a data de matrícula prevista no Calendário Acadêmico, você perderá o semestre em curso.\n\n---\n\n**Fontes:**\n- Calendário Acadêmico 2026.2.pdf, página 8\n- Manual do Aluno 2025 UERR, página 16",
+      "keyword_recall": 1.0,
+      "source_matched": false,
+      "sources_retrieved": [
+        "Calendario-Academico-2026-2.pdf",
+        "Calendario-Academico-2026-2.pdf",
+        "Calendario-Academico-2026-2.pdf",
+        "manual-do-aluno-2025-uerr.pdf",
+        "PPC_Historia_UERR.pdf"
+      ],
+      "top_score": 0.6672,
+      "usage": {
+        "input_tokens": 2850,
+        "output_tokens": 298
+      },
+      "error": null
+    },
+    {
+      "question": "Quais atividades complementares são aceitas no curso de Pedagogia?",
+      "answer": "# Atividades Complementares Aceitas no Curso de Pedagogia\n\nCom base no Projeto Pedagógico do Curso de Pedagogia da UERR, as atividades complementares podem ser desenvolvidas nas seguintes modalidades:\n\n## Tipos de Atividades Aceitas:\n\n- **Monitorias**\n- **Estágios**\n- **Programas de iniciação científica**\n- **Estudos complementares**\n- **Cursos realizados em áreas afins**\n- **Integração com cursos sequenciais correlatos à área**\n- **Participação em eventos científicos no campo da educação**\n- **Outras atividades discriminadas pela instituição** (desde que sejam definidos critérios de avaliação)\n\n## Informações Importantes:\n\n- As atividades complementares totalizam uma carga horária de **200 horas**\n- Podem ser realizadas nas **áreas culturais, criação, adaptação, difusão e transferência de conhecimentos e de tecnologias** correlatas ao Curso ou ao Trabalho de Conclusão de Curso\n- O curso estabelece **critérios de avaliação** para o aproveitamento dos estudos independentes, com **limite máximo de horas** a serem incorporadas ao currículo\n\n---\n\n**Fonte:** 1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf, página 24",
+      "keyword_recall": 0.67,
+      "source_matched": true,
+      "sources_retrieved": [
+        "PPC_CComputacao_2018.pdf",
+        "46_sei_17201_003563_2022_18_(3).pdf",
+        "PPC_Historia_UERR.pdf",
+        "manual-do-aluno-2025-uerr.pdf",
+        "1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf"
+      ],
+      "top_score": 0.7623,
+      "usage": {
+        "input_tokens": 3947,
+        "output_tokens": 348
+      },
+      "error": null
+    },
+    {
+      "question": "Qual é o prazo mínimo e máximo para integralização do curso?",
+      "answer": "# Prazos de Integralização do Curso\n\nCom base nos documentos disponíveis, os prazos variam conforme o curso:\n\n## Curso de Licenciatura em História\n- **Prazo mínimo**: Não especificado no trecho\n- **Prazo máximo**: 13 semestres (para estudantes que ingressaram entre 2016 e 2018 e ultrapassarem o prazo de 10 semestres da matriz de transição)\n\n*Fonte: PPC_Historia_UERR.pdf, página 36*\n\n## Curso de Licenciatura em Pedagogia\n- **Prazo mínimo**: 8 semestres (4 anos)\n- **Prazo máximo**: 12 semestres (6 anos)\n\n*Fonte: 1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf, página 20*\n\n---\n\n**Observação importante**: Os prazos diferem entre cursos. Se você precisa saber o prazo específico do seu curso, consulte o Projeto Pedagógico do seu programa ou a Coordenação do Curso. Os documentos do Curso de Bacharelado em Ciência da Computação disponíveis não mencionam esses prazos.",
+      "keyword_recall": 1.0,
+      "source_matched": true,
+      "sources_retrieved": [
+        "PPC_Historia_UERR.pdf",
+        "PPC_CComputacao_2018.pdf",
+        "PPC_CComputacao_2018.pdf",
+        "1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf",
+        "PPC_CComputacao_2018.pdf"
+      ],
+      "top_score": 0.6184,
+      "usage": {
+        "input_tokens": 3468,
+        "output_tokens": 318
+      },
+      "error": null
+    },
+    {
+      "question": "Como solicitar aproveitamento de disciplinas cursadas em outra instituição?",
+      "answer": "Com base nos documentos disponíveis, **não encontrei informações específicas sobre o procedimento para solicitar aproveitamento de disciplinas cursadas em outra instituição**.\n\nO único trecho que menciona equivalência de disciplinas refere-se especificamente ao **Curso de Direito**, abordando a comparação entre duas matrizes curriculares internas do próprio curso:\n\n> \"A fim de propiciar uma referência segura para o aproveitamento dos componentes curriculares é que a tabela seguinte estabelece equivalência de disciplinas na comparação entre as duas matrizes curriculares do Curso de Direito. Quaisquer dissonâncias relacionadas à carga horária no momento da aplicação das equivalências serão sanadas mediante complementação de carga horária através de atividades extraclasse.\"\n\nEste documento não detalha o processo de solicitação nem aborda aproveitamento de disciplinas de outras instituições.\n\n**Recomendação:** Para obter informações sobre aproveitamento de disciplinas cursadas em outras universidades, você deve consultar:\n- Regulamento Geral da UERR\n- Secretaria Acadêmica ou Coordenação do seu curso\n- Documentos específicos sobre políticas de aproveitamento e equivalência de estudos\n\n---\n*Fontes consultadas: PPC_DIREITO.pdf, página 90*",
+      "keyword_recall": 1.0,
+      "source_matched": false,
+      "sources_retrieved": [
+        "PPC_DIREITO.pdf",
+        "PPC_Historia_UERR.pdf",
+        "PPC_DIREITO.pdf",
+        "1-PROJETO-PEDAGOGICO-DO-CURSO-DE-PEDAGOGIA-2021.pdf",
+        "PPC_DIREITO.pdf"
+      ],
+      "top_score": 0.6182,
+      "usage": {
+        "input_tokens": 3464,
+        "output_tokens": 326
+      },
+      "error": null
+    },
+    {
+      "question": "Quais são as normas para o TCC?",
+      "answer": "# Informações sobre TCC\n\nCom base nos documentos disponíveis, encontrei uma referência limitada sobre o TCC:\n\nSegundo o Projeto Pedagógico do Curso de Licenciatura em História, existem **duas disciplinas de TCC (TCC I e TCC II)**, que visam:\n- Aumentar o tempo de trabalho e colaboração entre orientador e orientando\n- Aumentar a qualidade das pesquisas realizadas\n- Distribuir melhor a carga de trabalho do aluno (evitando acumular a produção do TCC com muitas disciplinas simultaneamente)\n\n---\n\n**Limitação:** Os trechos fornecidos não contêm informações detalhadas sobre as **normas específicas** para elaboração do TCC (como formatação, estrutura, prazos de entrega, critérios de avaliação, etc.).\n\nPara obter as normas completas e detalhadas sobre o TCC do seu curso, recomendo:\n- Consultar o **Projeto Pedagógico completo** do seu curso específico\n- Procurar um **manual de TCC** ou **guia de normas** da universidade\n- Conversar com sua **coordenação de curso** ou **orientador**\n\n**Fonte:** Projeto Pedagógico do Curso de Licenciatura em História, página 8",
+      "keyword_recall": 0.33,
+      "source_matched": true,
+      "sources_retrieved": [
+        "PPC_DIREITO.pdf",
+        "PPC_DIREITO.pdf",
+        "PPC_DIREITO.pdf",
+        "PPC_Historia_UERR.pdf",
+        "GEOGRAFIA___PPC.pdf"
+      ],
+      "top_score": 0.5964,
+      "usage": {
+        "input_tokens": 2847,
+        "output_tokens": 323
+      },
+      "error": null
+    },
+    {
+      "question": "Qual é o calendário acadêmico do segundo semestre de 2026?",
+      "answer": "# Calendário Acadêmico 2026.2\n\nCom base nos documentos disponíveis, posso confirmar que **existe um Calendário Acadêmico para 2026.2**, porém os trechos fornecidos contêm informações parciais sobre esse semestre.\n\n## Informações disponíveis sobre 2026.2:\n\nOs documentos mostram algumas datas e períodos importantes para o segundo semestre de 2026:\n\n- **Período de matrícula de veteranos**: 1º a 12 de julho\n- **Matrícula de calouros**: 11 a 23 de julho\n- **Reuniões de NDEs e Colegiados**: 17 a 24 de julho\n- **Períodos de exames especiais**: 22 a 26 de junho (ainda relacionado ao semestre anterior)\n\n## Recomendação:\n\nPara obter o **calendário acadêmico completo do semestre 2026.2** com todas as datas importantes (início e término do semestre letivo, períodos de avaliação, feriados, colação de grau, etc.), recomendo:\n\n1. Acessar o site oficial da UERR\n2. Baixar o documento completo \"Calendário Acadêmico 2026.2\"\n3. Acompanhar as comunicações da instituição regularmente\n\n**Fontes:** Calendário Acadêmico 2026-2.pdf (páginas 7-8) | Manual do Aluno 2025 UERR (página 10)",
+      "keyword_recall": 1.0,
+      "source_matched": true,
+      "sources_retrieved": [
+        "Calendario-Academico-2026-2.pdf",
+        "manual-do-aluno-2025-uerr.pdf",
+        "Calendario-Academico-2026-2.pdf",
+        "Calendario-Academico-2026-2.pdf",
+        "Calendario-Academico-2026-2.pdf"
+      ],
+      "top_score": 0.8018,
+      "usage": {
+        "input_tokens": 2240,
+        "output_tokens": 382
+      },
+      "error": null
+    }
+  ]
+}
